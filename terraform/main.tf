@@ -183,34 +183,70 @@ resource "aws_api_gateway_rest_api" "payloads" {
   description = "Upload objects for asynchronous processing."
 }
 
-resource "aws_api_gateway_resource" "object" {
-  rest_api_id = aws_api_gateway_rest_api.payloads.id
-  parent_id   = aws_api_gateway_rest_api.payloads.root_resource_id
-  path_part   = "{object}"
-}
-
-resource "aws_api_gateway_method" "put_object" {
+resource "aws_api_gateway_method" "post_request" {
   rest_api_id   = aws_api_gateway_rest_api.payloads.id
-  resource_id   = aws_api_gateway_resource.object.id
-  http_method   = "PUT"
+  resource_id   = aws_api_gateway_rest_api.payloads.root_resource_id
+  http_method   = "POST"
   authorization = "NONE"
-
-  request_parameters = {
-    "method.request.path.object" = true
-  }
 }
 
 resource "aws_api_gateway_integration" "s3_put_object" {
   rest_api_id             = aws_api_gateway_rest_api.payloads.id
-  resource_id             = aws_api_gateway_resource.object.id
-  http_method             = aws_api_gateway_method.put_object.http_method
+  resource_id             = aws_api_gateway_rest_api.payloads.root_resource_id
+  http_method             = aws_api_gateway_method.post_request.http_method
   integration_http_method = "PUT"
   type                    = "AWS"
   credentials             = aws_iam_role.api_gateway.arn
-  uri                     = "arn:aws:apigateway:${data.aws_region.current.name}:s3:path/${aws_s3_bucket.payloads.bucket}/{object}"
+  uri                     = "arn:aws:apigateway:${data.aws_region.current.name}:s3:path/${aws_s3_bucket.payloads.bucket}/{year}/{month}/{day}/{filename}"
   request_parameters = {
-    "integration.request.path.object" = "method.request.path.object"
+    "integration.request.path.year"     = "context.requestId"
+    "integration.request.path.month"    = "context.requestId"
+    "integration.request.path.day"      = "context.requestId"
+    "integration.request.path.filename" = "context.requestId"
   }
+  request_templates = {
+    "application/json" = <<-VTL
+      #set($requestTime = $context.requestTime)
+      #set($day = $requestTime.substring(0, 2))
+      #set($monthName = $requestTime.substring(3, 6))
+      #set($year = $requestTime.substring(7, 11))
+      #set($month = "01")
+      #if($monthName == "Feb")
+        #set($month = "02")
+      #elseif($monthName == "Mar")
+        #set($month = "03")
+      #elseif($monthName == "Apr")
+        #set($month = "04")
+      #elseif($monthName == "May")
+        #set($month = "05")
+      #elseif($monthName == "Jun")
+        #set($month = "06")
+      #elseif($monthName == "Jul")
+        #set($month = "07")
+      #elseif($monthName == "Aug")
+        #set($month = "08")
+      #elseif($monthName == "Sep")
+        #set($month = "09")
+      #elseif($monthName == "Oct")
+        #set($month = "10")
+      #elseif($monthName == "Nov")
+        #set($month = "11")
+      #elseif($monthName == "Dec")
+        #set($month = "12")
+      #end
+      #set($hour = $requestTime.substring(12, 14))
+      #set($minute = $requestTime.substring(15, 17))
+      #set($second = $requestTime.substring(18, 20))
+      #set($timestamp = "$hour$minute$second")
+      #set($filename = "$${timestamp}_$context.extendedRequestId.json")
+      #set($context.requestOverride.path.year = $year)
+      #set($context.requestOverride.path.month = $month)
+      #set($context.requestOverride.path.day = $day)
+      #set($context.requestOverride.path.filename = $filename)
+      $input.json('$')
+    VTL
+  }
+  passthrough_behavior = "NEVER"
 }
 
 resource "aws_api_gateway_deployment" "environment" {
@@ -218,8 +254,8 @@ resource "aws_api_gateway_deployment" "environment" {
   triggers = {
     redeployment = sha1(jsonencode({
       method = {
-        http_method   = aws_api_gateway_method.put_object.http_method
-        authorization = aws_api_gateway_method.put_object.authorization
+        http_method   = aws_api_gateway_method.post_request.http_method
+        authorization = aws_api_gateway_method.post_request.authorization
       }
       integration = {
         type                    = aws_api_gateway_integration.s3_put_object.type
@@ -227,6 +263,8 @@ resource "aws_api_gateway_deployment" "environment" {
         uri                     = aws_api_gateway_integration.s3_put_object.uri
         credentials             = aws_api_gateway_integration.s3_put_object.credentials
         request_parameters      = aws_api_gateway_integration.s3_put_object.request_parameters
+        request_templates       = aws_api_gateway_integration.s3_put_object.request_templates
+        passthrough_behavior    = aws_api_gateway_integration.s3_put_object.passthrough_behavior
       }
     }))
   }

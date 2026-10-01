@@ -14,6 +14,6 @@ output "dead_letter_queue_url" {
 }
 
 output "api_upload_url" {
-  description = "Public PUT endpoint for this workspace; append the object name to upload a file."
-  value       = "${aws_api_gateway_stage.environment.invoke_url}/{object}"
+  description = "Public POST endpoint for this workspace; send a JSON body to create a dated S3 object."
+  value       = aws_api_gateway_stage.environment.invoke_url
 }
