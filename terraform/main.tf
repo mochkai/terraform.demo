@@ -134,14 +134,14 @@ resource "aws_lambda_function" "consumer" {
   }
 }
 
-resource "aws_lambda_event_source_mapping" "events" {
-  event_source_arn = aws_sqs_queue.events.arn
-  function_name    = aws_lambda_function.consumer.arn
-  batch_size       = 10
-  enabled          = true
+# resource "aws_lambda_event_source_mapping" "events" {
+#   event_source_arn = aws_sqs_queue.events.arn
+#   function_name    = aws_lambda_function.consumer.arn
+#   batch_size       = 10
+#   enabled          = true
 
-  depends_on = [aws_iam_role_policy.lambda_sqs]
-}
+#   depends_on = [aws_iam_role_policy.lambda_sqs]
+# }
 
 resource "aws_iam_role" "api_gateway" {
   name = "${local.service_name}-api-gateway"
