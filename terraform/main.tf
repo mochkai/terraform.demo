@@ -249,6 +249,80 @@ resource "aws_api_gateway_integration" "s3_put_object" {
   passthrough_behavior = "NEVER"
 }
 
+resource "aws_api_gateway_method_response" "s3_success" {
+  rest_api_id = aws_api_gateway_rest_api.payloads.id
+  resource_id = aws_api_gateway_rest_api.payloads.root_resource_id
+  http_method = aws_api_gateway_method.post_request.http_method
+  status_code = "200"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+resource "aws_api_gateway_method_response" "s3_client_error" {
+  rest_api_id = aws_api_gateway_rest_api.payloads.id
+  resource_id = aws_api_gateway_rest_api.payloads.root_resource_id
+  http_method = aws_api_gateway_method.post_request.http_method
+  status_code = "400"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+resource "aws_api_gateway_method_response" "s3_server_error" {
+  rest_api_id = aws_api_gateway_rest_api.payloads.id
+  resource_id = aws_api_gateway_rest_api.payloads.root_resource_id
+  http_method = aws_api_gateway_method.post_request.http_method
+  status_code = "500"
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+resource "aws_api_gateway_integration_response" "s3_success" {
+  rest_api_id = aws_api_gateway_rest_api.payloads.id
+  resource_id = aws_api_gateway_rest_api.payloads.root_resource_id
+  http_method = aws_api_gateway_method.post_request.http_method
+  status_code = aws_api_gateway_method_response.s3_success.status_code
+
+  response_templates = {
+    "application/json" = "{}"
+  }
+
+  depends_on = [aws_api_gateway_integration.s3_put_object]
+}
+
+resource "aws_api_gateway_integration_response" "s3_client_error" {
+  rest_api_id       = aws_api_gateway_rest_api.payloads.id
+  resource_id       = aws_api_gateway_rest_api.payloads.root_resource_id
+  http_method       = aws_api_gateway_method.post_request.http_method
+  status_code       = aws_api_gateway_method_response.s3_client_error.status_code
+  selection_pattern = "4\\d{2}"
+
+  response_templates = {
+    "application/json" = "{\"error\":\"S3 rejected the upload\"}"
+  }
+
+  depends_on = [aws_api_gateway_integration.s3_put_object]
+}
+
+resource "aws_api_gateway_integration_response" "s3_server_error" {
+  rest_api_id       = aws_api_gateway_rest_api.payloads.id
+  resource_id       = aws_api_gateway_rest_api.payloads.root_resource_id
+  http_method       = aws_api_gateway_method.post_request.http_method
+  status_code       = aws_api_gateway_method_response.s3_server_error.status_code
+  selection_pattern = "5\\d{2}"
+
+  response_templates = {
+    "application/json" = "{\"error\":\"S3 failed to store the upload\"}"
+  }
+
+  depends_on = [aws_api_gateway_integration.s3_put_object]
+}
+
 resource "aws_api_gateway_deployment" "environment" {
   rest_api_id = aws_api_gateway_rest_api.payloads.id
   triggers = {
@@ -256,6 +330,11 @@ resource "aws_api_gateway_deployment" "environment" {
       method = {
         http_method   = aws_api_gateway_method.post_request.http_method
         authorization = aws_api_gateway_method.post_request.authorization
+        responses = [
+          aws_api_gateway_method_response.s3_success.status_code,
+          aws_api_gateway_method_response.s3_client_error.status_code,
+          aws_api_gateway_method_response.s3_server_error.status_code
+        ]
       }
       integration = {
         type                    = aws_api_gateway_integration.s3_put_object.type
@@ -265,11 +344,20 @@ resource "aws_api_gateway_deployment" "environment" {
         request_parameters      = aws_api_gateway_integration.s3_put_object.request_parameters
         request_templates       = aws_api_gateway_integration.s3_put_object.request_templates
         passthrough_behavior    = aws_api_gateway_integration.s3_put_object.passthrough_behavior
+        responses = [
+          aws_api_gateway_integration_response.s3_success.status_code,
+          aws_api_gateway_integration_response.s3_client_error.selection_pattern,
+          aws_api_gateway_integration_response.s3_server_error.selection_pattern
+        ]
       }
     }))
   }
 
-  depends_on = [aws_api_gateway_integration.s3_put_object]
+  depends_on = [
+    aws_api_gateway_integration_response.s3_success,
+    aws_api_gateway_integration_response.s3_client_error,
+    aws_api_gateway_integration_response.s3_server_error
+  ]
 
   lifecycle {
     create_before_destroy = true
