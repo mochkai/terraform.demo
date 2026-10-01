@@ -61,6 +61,46 @@ terraform apply
 
 Repeat with `prod` to update only production. Avoid deploying from the `default` workspace. GitHub Actions must use the same backend bucket, key, workspace prefix, and workspace names.
 
+## GitHub Actions AWS Access
+
+The workflow authenticates to AWS with GitHub OIDC, so it does not need long-lived AWS access keys in GitHub. Configure it once as follows.
+
+1. In the GitHub repository, open **Settings > Environments** and create an environment named `production`. The workflow already references this environment. Configure deployment branch restrictions and required reviewers according to your release process.
+2. In the AWS Console, open **IAM > Identity providers** and choose **Add provider**. Select **OpenID Connect**, enter `https://token.actions.githubusercontent.com` as the provider URL, and add `sts.amazonaws.com` as the audience. If this provider already exists in the account, reuse it instead of creating a duplicate.
+3. In **IAM > Roles**, create a role using **Custom trust policy**. Name it, for example, `GitHubActionsTerraformRole`, and use this trust policy to allow repositories owned by `mochkai` when their job uses the `production` environment:
+
+	 ```json
+	 {
+		 "Version": "2012-10-17",
+		 "Statement": [
+			 {
+				 "Effect": "Allow",
+				 "Principal": {
+					 "Federated": "arn:aws:iam::731802381878:oidc-provider/token.actions.githubusercontent.com"
+				 },
+				 "Action": "sts:AssumeRoleWithWebIdentity",
+				 "Condition": {
+					 "StringEquals": {
+						 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+					 },
+					 "StringLike": {
+						 "token.actions.githubusercontent.com:sub": "repo:mochkai/*:environment:production"
+					 }
+				 }
+			 }
+		 ]
+	 }
+	 ```
+
+	 If you already have a GitHub OIDC provider, use its ARN in `Principal.Federated`.
+4. Attach the customer-managed Terraform permissions policy to this role. It must allow the workflow to access the S3 state bucket and manage the stack's AWS resources. Keep the role's permissions scoped to this project.
+5. Copy the role ARN from IAM. In GitHub, open **Settings > Secrets and variables > Actions**, create a repository secret named `AWS_ROLE_ARN`, and set its value to the role ARN. The workflow already uses this secret and requests `id-token: write`.
+6. Push a change or open a pull request and check the **Configure AWS credentials** step. If it reports `Not authorized to perform sts:AssumeRoleWithWebIdentity`, verify the provider URL, audience, owner name, environment name, and role trust policy.
+
+The `repo:mochkai/*` wildcard allows any repository under that GitHub owner to assume this role when using the `production` environment. Those repositories share the role's AWS permissions and Terraform backend state. Use separate roles and state keys for projects that should be isolated; do not use this wildcard for unrelated or untrusted repositories.
+
+The current workflow assigns the `production` environment to the whole job, including pull-request plans. Required reviewers can therefore pause those plans, and branch restrictions may prevent them from running. The trust policy above intentionally accepts only jobs using that environment. For a smoother and safer release flow, separate pull-request planning from production apply so only the apply job uses the protected `production` environment.
+
 ## Upload
 
 The API endpoint is intentionally unauthenticated for a quick demo. Upload only non-sensitive test data, and add authentication, throttling, and request limits before exposing it to real users.
