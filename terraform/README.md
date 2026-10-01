@@ -70,30 +70,163 @@ The workflow authenticates to AWS with GitHub OIDC, so it does not need long-liv
 3. In **IAM > Roles**, create a role using **Custom trust policy**. Name it, for example, `GitHubActionsTerraformRole`, and use this trust policy to allow repositories owned by `mochkai` when their job uses the `production` environment:
 
 	 ```json
-	 {
-		 "Version": "2012-10-17",
-		 "Statement": [
-			 {
-				 "Effect": "Allow",
-				 "Principal": {
-					 "Federated": "arn:aws:iam::731802381878:oidc-provider/token.actions.githubusercontent.com"
-				 },
-				 "Action": "sts:AssumeRoleWithWebIdentity",
-				 "Condition": {
-					 "StringEquals": {
-						 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-					 },
-					 "StringLike": {
-						 "token.actions.githubusercontent.com:sub": "repo:mochkai/*:environment:production"
-					 }
-				 }
-			 }
-		 ]
-	 }
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Federated": "arn:aws:iam::731802381878:oidc-provider/token.actions.githubusercontent.com"
+                    },
+                    "Action": "sts:AssumeRoleWithWebIdentity",
+                    "Condition": {
+                        "StringEquals": {
+                            "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+                        },
+                        "StringLike": {
+                            "token.actions.githubusercontent.com:sub": "repo:mochkai/*:environment:production"
+                        }
+                    }
+                }
+            ]
+        }
 	 ```
 
 	 If you already have a GitHub OIDC provider, use its ARN in `Principal.Federated`.
-4. Attach the customer-managed Terraform permissions policy to this role. It must allow the workflow to access the S3 state bucket and manage the stack's AWS resources. Keep the role's permissions scoped to this project.
+4. Create a customer-managed policy named, for example, `PocTerraformPermissions`, and attach it to the role. This policy grants the Terraform role access to the state bucket and the `poc-*` application resources:
+
+     ```json
+     {
+         "Version": "2012-10-17",
+         "Statement": [
+             {
+                 "Sid": "APIGatewayPolicies",
+                 "Effect": "Allow",
+                 "Action": "apigateway:*",
+                 "Resource": [
+                     "arn:aws:apigateway:eu-north-1::/restapis",
+                     "arn:aws:apigateway:eu-north-1::/restapis/*"
+                 ]
+             },
+             {
+                 "Sid": "IAMRolePolicies",
+                 "Effect": "Allow",
+                 "Action": [
+                     "iam:CreateRole",
+                     "iam:DeleteRole",
+                     "iam:GetRole",
+                     "iam:UpdateAssumeRolePolicy",
+                     "iam:ListInstanceProfilesForRole",
+                     "iam:PutRolePolicy",
+                     "iam:GetRolePolicy",
+                     "iam:DeleteRolePolicy",
+                     "iam:ListRolePolicies",
+                     "iam:AttachRolePolicy",
+                     "iam:DetachRolePolicy",
+                     "iam:ListAttachedRolePolicies",
+                     "iam:ListRoleTags",
+                     "iam:TagRole",
+                     "iam:UntagRole"
+                 ],
+                 "Resource": "arn:aws:iam::731802381878:role/poc-*"
+             },
+             {
+                 "Sid": "ReadLambdaExecutionPolicy",
+                 "Effect": "Allow",
+                 "Action": [
+                     "iam:GetPolicy",
+                     "iam:GetPolicyVersion"
+                 ],
+                 "Resource": "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+             },
+             {
+                 "Sid": "PassRolesToServices",
+                 "Effect": "Allow",
+                 "Action": "iam:PassRole",
+                 "Resource": "arn:aws:iam::731802381878:role/poc-*",
+                 "Condition": {
+                     "StringEquals": {
+                         "iam:PassedToService": [
+                             "lambda.amazonaws.com",
+                             "apigateway.amazonaws.com"
+                         ]
+                     }
+                 }
+             },
+             {
+                 "Sid": "LambdaPolicies",
+                 "Effect": "Allow",
+                 "Action": "lambda:*",
+                 "Resource": "*",
+                 "Condition": {
+                     "StringEquals": {
+                         "aws:RequestedRegion": "eu-north-1"
+                     }
+                 }
+             },
+             {
+                 "Sid": "TerraformStateBucketLocation",
+                 "Effect": "Allow",
+                 "Action": "s3:GetBucketLocation",
+                 "Resource": "arn:aws:s3:::terraform-tfstate-731802381878-eu-north-1-an"
+             },
+             {
+                 "Sid": "TerraformStateBucketList",
+                 "Effect": "Allow",
+                 "Action": "s3:ListBucket",
+                 "Resource": "arn:aws:s3:::terraform-tfstate-731802381878-eu-north-1-an",
+                 "Condition": {
+                     "StringLike": {
+                         "s3:prefix": [
+                             "terraform-demo/",
+                             "terraform-demo/*"
+                         ]
+                     }
+                 }
+             },
+             {
+                 "Sid": "TerraformStateObjectsAndLocks",
+                 "Effect": "Allow",
+                 "Action": [
+                     "s3:GetObject",
+                     "s3:PutObject",
+                     "s3:DeleteObject"
+                 ],
+                 "Resource": [
+                     "arn:aws:s3:::terraform-tfstate-731802381878-eu-north-1-an/terraform.tfstate",
+                     "arn:aws:s3:::terraform-tfstate-731802381878-eu-north-1-an/terraform.tfstate.tflock",
+                     "arn:aws:s3:::terraform-tfstate-731802381878-eu-north-1-an/terraform-demo/*"
+                 ]
+             },
+             {
+                 "Sid": "POCS3BucketPolicies",
+                 "Effect": "Allow",
+                 "Action": "s3:*",
+                 "Resource": "arn:aws:s3:::poc-*"
+             },
+             {
+                 "Sid": "POCS3ObjectPolicies",
+                 "Effect": "Allow",
+                 "Action": "s3:*",
+                 "Resource": "arn:aws:s3:::poc-*/*"
+             },
+             {
+                 "Sid": "POCSQSQueuePolicies",
+                 "Effect": "Allow",
+                 "Action": "sqs:*",
+                 "Resource": "arn:aws:sqs:eu-north-1:731802381878:poc-*"
+             },
+             {
+                 "Sid": "SQSListQueuePolicies",
+                 "Effect": "Allow",
+                 "Action": "sqs:ListQueues",
+                 "Resource": "*"
+             }
+         ]
+     }
+     ```
+
+     Review this policy before use. The S3 and SQS wildcards allow full control over `poc-*` resources, and the Lambda wildcard allows all Lambda actions in `eu-north-1`. IAM role actions are explicit, and `iam:PassRole` is limited to Lambda and API Gateway. The state bucket permissions are deliberately separate and do not allow deleting the bucket.
 5. Copy the role ARN from IAM. In GitHub, open **Settings > Secrets and variables > Actions**, create a repository secret named `AWS_ROLE_ARN`, and set its value to the role ARN. The workflow already uses this secret and requests `id-token: write`.
 6. Push a change or open a pull request and check the **Configure AWS credentials** step. If it reports `Not authorized to perform sts:AssumeRoleWithWebIdentity`, verify the provider URL, audience, owner name, environment name, and role trust policy.
 
