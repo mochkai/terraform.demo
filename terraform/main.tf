@@ -52,17 +52,19 @@ resource "aws_sqs_queue_policy" "events" {
   queue_url = aws_sqs_queue.events.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid       = "AllowS3BucketNotifications"
-      Effect    = "Allow"
-      Principal = { Service = "s3.amazonaws.com" }
-      Action    = "sqs:SendMessage"
-      Resource  = aws_sqs_queue.events.arn
-      Condition = {
-        ArnEquals      = { "aws:SourceArn" = aws_s3_bucket.payloads.arn }
-        StringEquals   = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+    Statement = [
+      {
+        Sid       = "AllowS3BucketNotifications"
+        Effect    = "Allow"
+        Principal = { Service = "s3.amazonaws.com" }
+        Action    = "sqs:SendMessage"
+        Resource  = aws_sqs_queue.events.arn
+        Condition = {
+          ArnEquals    = { "aws:SourceArn" = aws_s3_bucket.payloads.arn }
+          StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+        }
       }
-    }]
+    ]
   })
 }
 
@@ -81,11 +83,13 @@ resource "aws_iam_role" "lambda" {
   name = "${local.service_name}-lambda"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "lambda.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { Service = "lambda.amazonaws.com" }
+        Action    = "sts:AssumeRole"
+      }
+    ]
   })
 }
 
@@ -99,16 +103,18 @@ resource "aws_iam_role_policy" "lambda_sqs" {
   role = aws_iam_role.lambda.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "sqs:ReceiveMessage",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes",
-        "sqs:ChangeMessageVisibility"
-      ]
-      Resource = aws_sqs_queue.events.arn
-    }]
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:ChangeMessageVisibility"
+        ]
+        Resource = aws_sqs_queue.events.arn
+      }
+    ]
   })
 }
 
@@ -134,24 +140,26 @@ resource "aws_lambda_function" "consumer" {
   }
 }
 
-# resource "aws_lambda_event_source_mapping" "events" {
-#   event_source_arn = aws_sqs_queue.events.arn
-#   function_name    = aws_lambda_function.consumer.arn
-#   batch_size       = 10
-#   enabled          = true
+resource "aws_lambda_event_source_mapping" "events" {
+  event_source_arn = aws_sqs_queue.events.arn
+  function_name    = aws_lambda_function.consumer.arn
+  batch_size       = 10
+  enabled          = true
 
-#   depends_on = [aws_iam_role_policy.lambda_sqs]
-# }
+  depends_on = [aws_iam_role_policy.lambda_sqs]
+}
 
 resource "aws_iam_role" "api_gateway" {
   name = "${local.service_name}-api-gateway"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "apigateway.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { Service = "apigateway.amazonaws.com" }
+        Action    = "sts:AssumeRole"
+      }
+    ]
   })
 }
 
@@ -160,11 +168,13 @@ resource "aws_iam_role_policy" "api_gateway_s3" {
   role = aws_iam_role.api_gateway.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = "s3:PutObject"
-      Resource = "${aws_s3_bucket.payloads.arn}/*"
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.payloads.arn}/*"
+      }
+    ]
   })
 }
 
